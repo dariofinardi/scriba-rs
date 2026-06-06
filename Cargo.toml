@@ -8,7 +8,7 @@ repository = "https://github.com/dariofinardi/scriba-rs"
 build = "build.rs"
 
 [dependencies]
-scriba-core = { path = "../scriba-core/core" }
+scriba-core = { git = "https://github.com/dariofinardi/scriba-core-rs.git", tag = "v20260606" }
 whisper-rs = { git = "https://github.com/dariofinardi/whisper-rs.git", tag = "v20260606" }
 slint = { version = "1.8", features = ["backend-winit"] }
 i-slint-backend-winit = "1.8"
