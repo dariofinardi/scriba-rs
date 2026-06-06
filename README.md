@@ -1,25 +1,60 @@
-# scriba-rs
+# Scriba
 
-Embeddable speech-to-text widget for Rust desktop applications. Drop a borderless, always-on-top transcription window into any app with a single function call — powered by [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) and [Slint UI](https://slint.dev).
+**Trascrizione vocale locale, privata e multilingue per desktop.**
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Rust](https://img.shields.io/badge/language-Rust-orange)
 
-## Overview
+## Perché Scriba
 
-`scriba-rs` provides a complete local transcription UI: model selection, audio file import, live microphone recording, progress feedback, clipboard copy, and optional speaker diarization. It uses [scriba-core](https://github.com/dariofinardi/scriba-core-rs) for the headless audio pipeline and adds a polished Slint-based interface on top.
+I servizi di trascrizione cloud sollevano problemi di privacy, dipendenza dalla rete e costi ricorrenti. Scriba nasce per offrire un'alternativa completamente locale: la voce non lascia mai il dispositivo, la trascrizione avviene interamente on-device grazie a [Whisper](https://github.com/openai/whisper) di OpenAI, eseguito nativamente via [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
 
-The window is **borderless** and **always-on-top** by default, with a custom title bar (drag, minimize, close with confirmation), a system tray icon, and full dark/light theme support.
+L'obiettivo è fornire uno strumento semplice e integrabile: un widget di trascrizione che qualsiasi applicazione Rust può incorporare con una singola chiamata a funzione. Scriba gestisce autonomamente l'interfaccia, il download dei modelli, la registrazione dal microfono, e restituisce al chiamante un risultato strutturato in JSON.
+
+## Cosa fa
+
+- **Trascrizione da file audio** — importa WAV, MP3, OGG, FLAC tramite file picker
+- **Registrazione dal microfono** — seleziona il dispositivo di input, cattura in tempo reale con timer e barra di progresso
+- **Rilevamento automatico della lingua** — oppure selezione manuale tra italiano, inglese, spagnolo, francese, tedesco, portoghese
+- **Identificazione degli speaker** — diarizzazione opzionale: chi sta parlando in ogni segmento (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx))
+- **Gestione modelli integrata** — scarica, seleziona e cambia modello direttamente dal pannello di setup, senza uscire dall'app
+- **Copia negli appunti** — un click per copiare la trascrizione
+- **Risultato strutturato** — `ScribaResult` con testo completo, segmenti con timing, lingua, speaker, tempi di elaborazione — serializzabile JSON
+- **Supporto registratori BLE** — download e trascrizione automatica da dispositivi Bluetooth (feature opzionale `recorder`, richiede [mic-rs](https://github.com/dariofinardi/mic-rs))
+
+### Interfaccia
+
+Finestra **borderless** e **always-on-top**, pensata per restare sovrapposta all'applicazione di lavoro senza ingombrare. Title bar custom con drag, minimizza e chiusura con conferma. Icona nella system tray con menu "Show Scriba" e "About…". Tema chiaro/scuro con colore accent personalizzabile.
+
+L'applicazione parte minimizzata nella taskbar. La chiusura richiede sempre conferma per evitare perdite accidentali.
+
+## Modelli Whisper
+
+Scriba utilizza modelli GGML quantizzati, scaricati automaticamente al primo utilizzo da [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main):
+
+| ID | Modello | File | Dimensione | Velocità | Qualità | Uso consigliato |
+|----|---------|------|-----------|----------|---------|-----------------|
+| `lite` | Small Q5 | `ggml-small-q5_1.bin` | 190 MB | ★★★★ | ★★ | Appunti rapidi, bozze, meeting informali |
+| `medium` | Medium Q5 | `ggml-medium-q5_0.bin` | 515 MB | ★★★ | ★★★ | Buon compromesso velocità/accuratezza |
+| `turbo` | Large V3 Turbo Q5 | `ggml-large-v3-turbo-q5_0.bin` | 574 MB | ★★★ | ★★★★ | Massima accuratezza, trascrizioni professionali |
+
+Tutti i modelli supportano oltre 90 lingue. La quantizzazione Q5 riduce l'occupazione di memoria mantenendo una qualità prossima ai modelli float16 originali.
+
+I modelli vengono salvati in:
+- `models/` nella directory di lavoro (se presente)
+- Altrimenti in `%APPDATA%/scriba/models` (Windows) / `~/Library/Application Support/scriba/models` (macOS) / `~/.local/share/scriba/models` (Linux)
 
 ## Quick start
 
-Add to your `Cargo.toml`:
+Aggiungi al tuo `Cargo.toml`:
 
 ```toml
 [dependencies]
 scriba-rs = { git = "https://github.com/dariofinardi/scriba-rs.git", tag = "v20260606" }
 ```
 
-Then launch the transcription window:
+Lancia la finestra di trascrizione:
 
 ```rust
 fn main() {
@@ -27,57 +62,55 @@ fn main() {
         scriba_rs::ScribaConfig {
             accent_color: (0, 120, 212),
             model: "turbo".into(),
+            diarize: true,
             ..Default::default()
         },
         |result| {
-            println!("Transcription: {}", result.text);
-            println!("Language: {}", result.language);
-            println!("Duration: {:.1}s", result.audio_duration_secs);
+            let json = serde_json::to_string_pretty(&result).unwrap();
+            println!("{json}");
         },
     )
     .unwrap();
 }
 ```
 
-`run()` blocks until the user closes the window. The callback fires when the user confirms the transcription result.
+`run()` blocca fino alla chiusura della finestra. Il callback viene invocato quando l'utente preme "Conferma" sul risultato.
 
 ## API
 
 ### `ScribaConfig`
 
-| Field | Type | Default | Description |
+| Campo | Tipo | Default | Descrizione |
 |-------|------|---------|-------------|
-| `accent_color` | `(u8, u8, u8)` | `(232, 89, 12)` | RGB accent color for the UI theme |
-| `dark_mode` | `Option<bool>` | `None` | `None` follows the OS preference |
-| `default_language` | `String` | `"auto"` | Language code or `"auto"` for detection |
-| `model` | `String` | `"lite"` | Whisper model: `"lite"`, `"medium"`, `"turbo"` |
-| `diarize` | `bool` | `false` | Enable speaker diarization |
-| `app_name` | `String` | `"Scriba"` | Name shown in the title bar |
-| `data_dir` | `Option<PathBuf>` | `None` | Custom directory for models and config |
-| `always_on_top` | `bool` | `true` | Keep window above all others |
+| `accent_color` | `(u8, u8, u8)` | `(232, 89, 12)` | Colore accent RGB per il tema UI |
+| `dark_mode` | `Option<bool>` | `None` | `None` = segue il sistema operativo |
+| `default_language` | `String` | `"auto"` | Codice lingua o `"auto"` per rilevamento |
+| `model` | `String` | `"lite"` | ID modello: `"lite"`, `"medium"`, `"turbo"` |
+| `diarize` | `bool` | `false` | Abilita identificazione speaker |
+| `app_name` | `String` | `"Scriba"` | Nome mostrato nella title bar |
+| `data_dir` | `Option<PathBuf>` | `None` | Directory custom per modelli e config |
+| `always_on_top` | `bool` | `true` | Finestra sempre in primo piano |
 
 ### `ScribaResult`
 
-Returned to the `on_result` callback, serializable to JSON via serde.
+Restituito al callback `on_result`, serializzabile JSON via serde.
 
-| Field | Type | Description |
+| Campo | Tipo | Descrizione |
 |-------|------|-------------|
-| `text` | `String` | Full transcript |
-| `segments` | `Vec<ResultSegment>` | Timed segments with optional speaker labels |
-| `audio_duration_secs` | `f64` | Source audio duration |
-| `model` | `String` | Model used for transcription |
-| `language` | `String` | Detected or selected language |
-| `diarized` | `bool` | Whether diarization was applied |
-| `transcription_time_secs` | `f64` | Whisper inference time |
-| `diarization_time_secs` | `f64` | Diarization time (0.0 if disabled) |
+| `text` | `String` | Testo completo della trascrizione |
+| `segments` | `Vec<ResultSegment>` | Segmenti con timing e speaker opzionale |
+| `audio_duration_secs` | `f64` | Durata audio sorgente in secondi |
+| `model` | `String` | Modello utilizzato |
+| `language` | `String` | Lingua rilevata o selezionata |
+| `diarized` | `bool` | Se la diarizzazione è stata applicata |
+| `transcription_time_secs` | `f64` | Tempo di inferenza Whisper |
+| `diarization_time_secs` | `f64` | Tempo di diarizzazione (0.0 se disabilitata) |
 
-### Entry points
+### Entry point
 
 ```rust
-// Basic — fires on_result when the user confirms
 pub fn run<F>(config: ScribaConfig, on_result: F) -> anyhow::Result<()>
 
-// With optional cancellation callback
 pub fn run_with_cancel<F, G>(
     config: ScribaConfig,
     on_result: F,
@@ -85,42 +118,27 @@ pub fn run_with_cancel<F, G>(
 ) -> anyhow::Result<()>
 ```
 
-Both functions block until the window is closed. Must be called from the main thread (macOS requirement).
+Entrambe bloccano fino alla chiusura. Devono essere chiamate dal main thread (requisito macOS).
 
-## UI features
+## Feature flag
 
-- **Borderless window** with custom drag-to-move title bar
-- **Always-on-top** (configurable)
-- **Minimize to taskbar** + system tray icon with Show/About menu
-- **Close confirmation** dialog to prevent accidental exit
-- **Model management** — download, select, and switch Whisper models from the built-in setup panel
-- **Audio file import** — drag-and-drop or file picker (WAV, MP3, OGG)
-- **Live microphone recording** — select input device, real-time capture
-- **Transcription progress** with ETA
-- **Clipboard copy** with one click
-- **Speaker diarization** — identify who is speaking (optional feature)
-- **Dark / light theme** — follows system or set explicitly
-- **Customizable accent color** — match your app's branding
-
-## Feature flags
-
-| Flag | Description |
+| Flag | Descrizione |
 |------|-------------|
-| `diarize` | Speaker diarization via sherpa-rs |
-| `recorder` | BLE microphone support via mic-rs |
-| `cuda` | GPU acceleration (CUDA) |
-| `metal` | GPU acceleration (Metal, macOS) |
-| `vulkan` | GPU acceleration (Vulkan) |
+| `diarize` | Identificazione speaker via sherpa-rs + ONNX Runtime |
+| `recorder` | Supporto registratore BLE via mic-rs |
+| `cuda` | Accelerazione GPU NVIDIA (CUDA) |
+| `metal` | Accelerazione GPU Apple (Metal) |
+| `vulkan` | Accelerazione GPU cross-platform (Vulkan) |
 
-## Building
+## Build
 
-### Standard build
+### Build standard
 
 ```sh
 cargo build --release
 ```
 
-### With all optional features
+### Con tutte le feature opzionali
 
 ```sh
 cargo build --release --features "recorder,diarize"
@@ -128,47 +146,58 @@ cargo build --release --features "recorder,diarize"
 
 ### Windows ARM64 (Qualcomm Snapdragon)
 
-Requires Ninja and clang-cl. See [scriba-core build instructions](https://github.com/dariofinardi/scriba-core-rs#windows-arm64-qualcomm-snapdragon) for environment setup.
+Richiede Ninja e clang-cl. Consultare le [istruzioni di build di scriba-core](https://github.com/dariofinardi/scriba-core-rs#windows-arm64-qualcomm-snapdragon) per la configurazione dell'ambiente.
 
-**Important:** when the `diarize` feature is enabled, always build in release mode (`--release`). The ONNX Runtime used by sherpa-rs crashes in debug mode on ARM64.
+**Nota:** con la feature `diarize` abilitata, compilare sempre in release (`--release`). ONNX Runtime va in crash in modalità debug su ARM64.
 
-## Running the example
+### Eseguire l'esempio
 
 ```sh
 cargo run --release --example basic
 ```
 
-## Architecture
+## Architettura
 
 ```
 scriba-rs
 ├── src/
-│   ├── lib.rs        # Public API (ScribaConfig, ScribaResult, run)
-│   ├── gui.rs        # Slint window orchestration, callbacks, tray icon
-│   ├── recorder.rs   # Microphone capture (cpal)
-│   ├── models.rs     # Model registry, download, path management
-│   ├── whisper.rs    # Whisper transcription with progress
-│   └── config.rs     # JSON config persistence
+│   ├── lib.rs        # API pubblica (ScribaConfig, ScribaResult, run)
+│   ├── gui.rs        # Orchestrazione Slint, callback, system tray
+│   ├── recorder.rs   # Cattura microfono (cpal)
+│   ├── models.rs     # Registro modelli, download, gestione path
+│   ├── whisper.rs    # Trascrizione Whisper con progresso
+│   └── config.rs     # Persistenza configurazione JSON
 ├── slint-ui/
-│   ├── app.slint     # Main window layout
-│   ├── theme.slint   # Colors, icons, enums
-│   ├── widgets.slint # Reusable UI components
-│   └── setup.slint   # Model setup panel
+│   ├── app.slint     # Layout finestra principale
+│   ├── theme.slint   # Colori, icone, enumerazioni
+│   ├── widgets.slint # Componenti UI riutilizzabili
+│   └── setup.slint   # Pannello configurazione modelli
 └── examples/
-    └── basic.rs      # Minimal integration example
+    └── basic.rs      # Esempio minimo di integrazione
 ```
 
-`scriba-rs` depends on [scriba-core](https://github.com/dariofinardi/scriba-core-rs) for audio decoding, resampling, and Whisper inference. The UI layer adds Slint rendering, microphone management, model downloads, and the callback-based API.
+### Dipendenze principali
 
-## Supported platforms
+| Crate | Ruolo |
+|-------|-------|
+| [scriba-core](https://github.com/dariofinardi/scriba-core-rs) | Audio decoding, resampling, inferenza Whisper, diarizzazione |
+| [whisper-rs](https://github.com/dariofinardi/whisper-rs) | Binding Rust per whisper.cpp (fork con fix Windows) |
+| [slint](https://slint.dev) | Framework UI nativo, backend winit |
+| [cpal](https://crates.io/crates/cpal) | Cattura audio cross-platform |
+| [tray-icon](https://crates.io/crates/tray-icon) | Icona system tray |
+| [rfd](https://crates.io/crates/rfd) | Dialog nativi (file picker, conferme) |
+| [sherpa-rs](https://crates.io/crates/sherpa-rs) | Diarizzazione speaker (opzionale) |
+| [mic-rs](https://github.com/dariofinardi/mic-rs) | Registratore BLE Soundcore (opzionale) |
+
+## Piattaforme supportate
 
 - Windows x86_64
 - Windows ARM64 (Qualcomm Snapdragon X Elite)
 - macOS (Apple Silicon / Intel)
 - Linux x86_64
 
-## License
+## Licenza
 
-AGPL-3.0-or-later — see [LICENSE](LICENSE) for details.
+AGPL-3.0-or-later — vedi [LICENSE](LICENSE).
 
 Copyright © 2026 Dario Finardi
