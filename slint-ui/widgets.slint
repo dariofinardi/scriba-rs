@@ -1,0 +1,288 @@
+// widgets.slint — reusable building blocks: Icon, Meter, Selector, Btn, RecordButton.
+import { Theme, Icons, AppState } from "theme.slint";
+import { Spinner } from "std-widgets.slint";
+
+export component Icon inherits Rectangle {
+    in property <string> commands;
+    in property <brush> stroke: Theme.text;
+    in property <brush> fill: transparent;
+    in property <length> sw: 1.6px;
+    in property <length> size: 18px;
+    width: size;
+    height: size;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.commands;
+        stroke: root.stroke;
+        stroke-width: root.sw;
+        fill: root.fill;
+    }
+}
+
+// Small N-segment level meter (speed / quality).
+export component Meter inherits HorizontalLayout {
+    in property <int> value: 0;
+    in property <int> max: 4;
+    spacing: 2px;
+    for i in root.max: Rectangle {
+        width: 11px;
+        height: 5px;
+        border-radius: 2px;
+        background: i < root.value ? Theme.accent : Theme.border;
+    }
+}
+
+export component Btn inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> accent: false;
+    callback clicked;
+
+    height: 32px;
+    border-radius: 9px;
+    background: root.accent ? Theme.accent : Theme.surface;
+    border-width: root.accent ? 0px : 1px;
+    border-color: ta.has-hover ? Theme.accent : Theme.border;
+
+    HorizontalLayout {
+        padding-left: 13px;
+        padding-right: 13px;
+        spacing: 6px;
+        alignment: center;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            Icon {
+                commands: root.icon;
+                size: 15px;
+                sw: 1.7px;
+                stroke: root.accent ? white : (ta.has-hover ? Theme.accent : Theme.text);
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.label;
+                vertical-alignment: center;
+                font-size: 12.5px;
+                font-weight: 600;
+                font-family: Theme.ui-font;
+                color: root.accent ? white : (ta.has-hover ? Theme.accent : Theme.text);
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Dropdown selector with label + value + icon, opens a popup list.
+export component Selector inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> icon;
+    in property <[string]> options;
+    in property <bool> enabled: true;
+    callback selected(string);
+
+    height: 50px;
+    border-radius: 10px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: (ta.has-hover && root.enabled) ? Theme.accent : Theme.border;
+    opacity: root.enabled ? 1.0 : 0.5;
+
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        spacing: 10px;
+        alignment: stretch;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                commands: root.icon;
+                size: 18px;
+                stroke: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.label;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.7px;
+                color: Theme.faint;
+                font-family: Theme.ui-font;
+            }
+            Text {
+                text: root.value;
+                font-size: 13px;
+                font-weight: 500;
+                color: Theme.text;
+                overflow: elide;
+                font-family: Theme.ui-font;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                commands: Icons.chevron;
+                size: 16px;
+                sw: 1.8px;
+                stroke: Theme.muted;
+            }
+        }
+    }
+
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        Rectangle {
+            background: Theme.surface;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000033;
+            drop-shadow-offset-y: 8px;
+            VerticalLayout {
+                padding: 6px;
+                for opt in root.options: Rectangle {
+                    height: 34px;
+                    border-radius: 7px;
+                    background: ota.has-hover ? Theme.surface2 : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        Text {
+                            text: opt;
+                            vertical-alignment: center;
+                            font-size: 13px;
+                            color: opt == root.value ? Theme.accent : Theme.text;
+                            font-weight: opt == root.value ? 600 : 400;
+                            font-family: Theme.ui-font;
+                            overflow: elide;
+                        }
+                    }
+                    ota := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected(opt);
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            if (root.enabled) {
+                popup.show();
+            }
+        }
+    }
+}
+
+// Big circular record / stop / progress button.
+export component RecordButton inherits Rectangle {
+    in property <AppState> state;
+    in property <float> progress: 0.0; // 0..1 during transcribing
+    callback clicked;
+    callback cancel;
+    property <bool> recording: root.state == AppState.recording;
+    property <bool> busy: root.state == AppState.transcribing || root.state == AppState.diarizing;
+
+    width: 74px;
+    height: 74px;
+
+    // soft outer halo
+    Rectangle {
+        width: 74px;
+        height: 74px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 37px;
+        background: Theme.rec-soft;
+    }
+    // recording ring
+    if root.recording: Rectangle {
+        width: 70px;
+        height: 70px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 35px;
+        border-width: 2px;
+        border-color: Theme.rec;
+    }
+    // progress ring (transcribing)
+    if root.busy: Rectangle {
+        width: 70px;
+        height: 70px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 35px;
+        border-width: 3px;
+        border-color: Theme.rec.transparentize(0.7);
+    }
+    // main button
+    Rectangle {
+        width: 62px;
+        height: 62px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 31px;
+        background: Theme.rec;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: Theme.rec.transparentize(0.5);
+        drop-shadow-offset-y: 8px;
+
+        // transcribing: show progress % or spinner
+        if root.busy && root.progress > 0.01: Text {
+            text: "\{Math.round(root.progress * 100)}%";
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: white;
+            font-family: Theme.mono-font;
+        }
+        if root.busy && root.progress <= 0.01: Spinner {
+            width: 26px;
+            height: 26px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            indeterminate: true;
+        }
+        // idle/recording: mic or stop icon
+        if !root.busy: Icon {
+            commands: root.recording ? Icons.stop : Icons.mic;
+            fill: root.recording ? white : transparent;
+            stroke: root.recording ? transparent : white;
+            sw: 1.8px;
+            size: 26px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (root.busy) {
+                root.cancel();
+            } else {
+                root.clicked();
+            }
+        }
+    }
+}

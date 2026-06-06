@@ -1,0 +1,69 @@
+// theme.slint — design tokens, shared types, and icon path data.
+// Mirrors the HTML mockup. The Rust side flips `Theme.dark` (theme arrives as a
+// parameter) and sets `Theme.accent`; every color derives from those two.
+
+export enum AppState {
+    idle,         // ready to record
+    recording,    // capturing mic
+    downloading,  // auto-downloading model
+    transcribing, // Whisper working
+    diarizing,    // speaker diarization working
+    result,       // transcript ready
+}
+
+export struct ModelItem {
+    id: string,
+    name: string,
+    size: string,
+    note: string,
+    speed: int,        // 1..4
+    quality: int,      // 1..4
+    installed: bool,
+    selected: bool,
+    downloading: bool,
+    progress: float,        // 0..1
+    progress-label: string, // "720 MB / 1,5 GB"
+}
+
+export global Theme {
+    // ---- inputs (set from Rust) ----
+    in property <bool> dark: false;
+    in property <color> accent: #e8590c;
+
+    // ---- derived palette ----
+    out property <color> rec: #e5484d;
+    out property <color> rec-soft: dark ? #4a2a2c : #fbe9ea;
+    out property <color> done: #16a34a;
+
+    out property <color> bg:        dark ? #232220 : #f7f6f4;
+    out property <color> surface:   dark ? #2c2b28 : #ffffff;
+    out property <color> surface2:  dark ? #353330 : #f1f0ed;
+    out property <color> text:      dark ? #ededea : #36322d;
+    out property <color> muted:     dark ? #9e9a93 : #7d776f;
+    out property <color> faint:     dark ? #6f6b64 : #a8a39b;
+    out property <color> border:    dark ? #423f3b : #e6e3df;
+    out property <color> border2:   dark ? #3a3835 : #eeece8;
+    out property <color> tbar:      dark ? #2a2926 : #efeeeb;
+    out property <color> accent-soft: accent.transparentize(dark ? 0.78 : 0.86);
+
+    out property <length> radius: 12px;
+    out property <string> ui-font: "IBM Plex Sans";
+    out property <string> mono-font: "IBM Plex Mono";
+}
+
+export global Icons {
+    out property <string> mic: "M 9 6 A 3 3 0 0 1 15 6 L 15 11 A 3 3 0 0 1 9 11 Z M 5 11 A 7 7 0 0 0 19 11 M 12 18 L 12 21 M 8.5 21 L 15.5 21";
+    out property <string> stop: "M 7.5 7 L 16.5 7 L 16.5 16.5 L 7.5 16.5 Z";
+    out property <string> globe: "M 12 3 A 9 9 0 1 0 12.01 3 M 3 12 L 21 12 M 12 3 C 14.5 5.4 16 8.6 16 12 C 16 15.4 14.5 18.6 12 21 C 9.5 18.6 8 15.4 8 12 C 8 8.6 9.5 5.4 12 3";
+    out property <string> sliders: "M 4 8 L 20 8 M 4 16 L 20 16 M 13 8 A 2.3 2.3 0 1 0 17.01 8 M 7 16 A 2.3 2.3 0 1 0 11.01 16";
+    out property <string> chevron: "M 6 9 L 12 15 L 18 9";
+    out property <string> download: "M 12 4 L 12 15 M 7.5 10.5 L 12 15 L 16.5 10.5 M 5 20 L 19 20";
+    out property <string> check: "M 5 12.5 L 9.5 17 L 19 6.5";
+    out property <string> close: "M 6 6 L 18 18 M 18 6 L 6 18";
+    out property <string> copy: "M 9 9 L 18 9 A 2 2 0 0 1 20 11 L 20 18 A 2 2 0 0 1 18 20 L 11 20 A 2 2 0 0 1 9 18 Z M 5 15 L 5 6 A 2 2 0 0 1 7 4 L 16 4";
+    out property <string> bolt: "M 13 2 L 4 14 L 10 14 L 9 22 L 18 10 L 12 10 L 13 2 Z";
+    out property <string> users: "M 16 21 L 16 19 A 4 4 0 0 0 8 19 L 8 21 M 12 15 A 4 4 0 0 0 12 7 A 4 4 0 0 0 12 15 M 22 21 L 22 19 A 3 3 0 0 0 18 17 M 18 7 A 3 3 0 0 1 18 13";
+    out property <string> bluetooth: "M 7 7 L 17 17 L 12 22 L 12 2 L 17 7 L 7 17";
+    out property <string> trash: "M 3 6 L 21 6 M 19 6 L 19 20 A 2 2 0 0 1 17 22 L 7 22 A 2 2 0 0 1 5 20 L 5 6 M 8 6 L 8 4 A 2 2 0 0 1 10 2 L 14 2 A 2 2 0 0 1 16 4 L 16 6 M 10 11 L 10 17 M 14 11 L 14 17";
+    out property <string> minimize: "M 6 14 L 18 14";
+}

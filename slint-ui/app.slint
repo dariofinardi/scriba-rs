@@ -1,0 +1,695 @@
+// app.slint — main window. Borderless utility widget, always-on-top.
+import { Theme, Icons, AppState, ModelItem } from "theme.slint";
+import { Icon, Selector, RecordButton } from "widgets.slint";
+import { SetupModal } from "setup.slint";
+
+export { Theme }
+
+export component AppWindow inherits Window {
+    no-frame: true;
+    always-on-top: root.on-top;
+    title: "Scriba";
+
+    in-out property <bool> on-top: true;
+    default-font-family: Theme.ui-font;
+    background: Theme.bg;
+    min-width: 460px;
+    preferred-width: 460px;
+    min-height: 600px;
+    preferred-height: 600px;
+
+    // ---- state in ----
+    in property <AppState> state: AppState.idle;
+    in property <[string]> mics;
+    in property <string> mic: "—";
+    in property <[string]> languages;
+    in property <string> language: "Italiano";
+    in property <string> transcript;
+    in property <string> timer-text: "00:00";
+    in property <float> transcribe-progress: 0.0;
+    in property <string> source-name: "";
+    in property <[ModelItem]> models;
+    in property <string> app-name: "Scriba";
+    in property <string> download-label: "Download modello…";
+    in property <bool> recorder-available: false;
+    in-out property <bool> setup-open: false;
+    in-out property <bool> diarize-enabled: false;
+    in-out property <bool> diarize-active: false;
+    in property <bool> diarize-models-installed: false;
+    in property <string> diarize-status: "";
+    in-out property <bool> show-delete-prompt: false;
+
+    // ---- callbacks out ----
+    callback toggle-record();
+    callback cancel-transcribe();
+    callback select-mic(string);
+    callback select-language(string);
+    callback choose-model(string);
+    callback download-model(string);
+    callback copy-text();
+    callback open-file();
+    callback open-recorder();
+    callback toggle-diarize(bool);
+    callback download-diarize-models();
+    callback delete-device-files();
+    callback keep-device-files();
+    callback confirm-result();
+    callback close-window();
+    callback minimize-window();
+    callback start-drag();
+
+    property <bool> recording: state == AppState.recording;
+    property <bool> downloading: state == AppState.downloading;
+    property <bool> transcribing: state == AppState.transcribing;
+    property <bool> diarizing: state == AppState.diarizing;
+    property <bool> has-result: state == AppState.result;
+    property <bool> busy: recording || downloading || transcribing || diarizing;
+
+    VerticalLayout {
+        // ---- brand strip (draggable title bar) ----
+        Rectangle {
+            height: 42px;
+            background: Theme.tbar;
+            border-radius: 12px;
+            clip: true;
+            Rectangle {
+                height: 1px;
+                y: parent.height - 1px;
+                background: Theme.border2;
+            }
+            // Drag area covers entire strip
+            drag-area := TouchArea {
+                mouse-cursor: move;
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                        root.start-drag();
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 12px;
+                spacing: 0;
+                alignment: start;
+                // Close button (top-left)
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 8px;
+                        background: close-ta.has-hover ? Theme.rec-soft : transparent;
+                        VerticalLayout {
+                            alignment: center;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    commands: Icons.close;
+                                    size: 14px;
+                                    sw: 1.8px;
+                                    stroke: close-ta.has-hover ? Theme.rec : Theme.muted;
+                                }
+                            }
+                        }
+                        close-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.close-window(); }
+                        }
+                    }
+                }
+                // Minimize button
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 8px;
+                        background: min-ta.has-hover ? Theme.accent-soft : transparent;
+                        VerticalLayout {
+                            alignment: center;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    commands: Icons.minimize;
+                                    size: 14px;
+                                    sw: 2px;
+                                    stroke: min-ta.has-hover ? Theme.accent : Theme.muted;
+                                }
+                            }
+                        }
+                        min-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.minimize-window(); }
+                        }
+                    }
+                }
+                // Spacer
+                Rectangle { width: 6px; }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 11px;
+                        height: 11px;
+                        border-radius: 3px;
+                        background: Theme.accent;
+                    }
+                }
+                Rectangle { width: 8px; }
+                Text {
+                    text: root.app-name;
+                    vertical-alignment: center;
+                    font-size: 13.5px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    font-family: Theme.ui-font;
+                }
+                Rectangle { width: 8px; }
+                Text {
+                    text: "trascrizione";
+                    vertical-alignment: center;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: Theme.faint;
+                    font-family: Theme.ui-font;
+                }
+            }
+        }
+
+        // ---- body ----
+        VerticalLayout {
+            padding: 14px;
+            spacing: 12px;
+
+            // controls
+            Selector {
+                label: "MICROFONO DI INGRESSO";
+                value: root.mic;
+                icon: Icons.mic;
+                options: root.mics;
+                enabled: !root.busy;
+                selected(v) => { root.select-mic(v); }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Selector {
+                    horizontal-stretch: 1;
+                    label: "LINGUA";
+                    value: root.language;
+                    icon: Icons.globe;
+                    options: root.languages;
+                    enabled: !root.busy;
+                    selected(v) => { root.select-language(v); }
+                }
+                // diarize quick-toggle (session only, does not persist)
+                Rectangle {
+                    width: 50px;
+                    height: 50px;
+                    border-radius: 10px;
+                    background: root.diarize-active ? Theme.accent-soft : Theme.surface;
+                    border-width: 1px;
+                    border-color: root.diarize-active ? Theme.accent
+                        : (!root.busy && dta.has-hover) ? Theme.accent : Theme.border;
+                    opacity: root.busy ? 0.4 : 1.0;
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            alignment: center;
+                            Icon {
+                                commands: Icons.users;
+                                size: 20px;
+                                sw: 1.6px;
+                                stroke: root.diarize-active ? Theme.accent
+                                    : (!root.busy && dta.has-hover) ? Theme.accent : Theme.muted;
+                            }
+                        }
+                    }
+                    dta := TouchArea {
+                        mouse-cursor: root.busy ? default : pointer;
+                        clicked => {
+                            if (!root.busy) {
+                                root.diarize-active = !root.diarize-active;
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 106px;
+                    border-radius: 10px;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: (!root.busy && sta.has-hover) ? Theme.accent : Theme.border;
+                    opacity: root.busy ? 0.4 : 1.0;
+                    HorizontalLayout {
+                        alignment: center;
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 7px;
+                        VerticalLayout {
+                            alignment: center;
+                            width: 20px;
+                            Icon {
+                                commands: Icons.sliders;
+                                size: 18px;
+                                width: 18px;
+                                height: 18px;
+                                stroke: (!root.busy && sta.has-hover) ? Theme.accent : Theme.text;
+                            }
+                        }
+                        Text {
+                            text: "Setup";
+                            vertical-alignment: center;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: (!root.busy && sta.has-hover) ? Theme.accent : Theme.text;
+                            font-family: Theme.ui-font;
+                        }
+                    }
+                    sta := TouchArea {
+                        mouse-cursor: root.busy ? default : pointer;
+                        clicked => { if (!root.busy) { root.setup-open = true; } }
+                    }
+                }
+            }
+
+            // transcript
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 12px;
+                background: Theme.surface2;
+                border-width: 1px;
+                border-color: Theme.border2;
+                clip: true;
+
+                // result text + copy + confirm buttons
+                if root.has-result: VerticalLayout {
+                    Flickable {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 18px;
+                            Text {
+                                text: root.transcript;
+                                font-size: 15px;
+                                color: Theme.text;
+                                wrap: word-wrap;
+                                font-family: Theme.ui-font;
+                            }
+                        }
+                    }
+                    if root.show-delete-prompt: HorizontalLayout {
+                        alignment: center;
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 110px;
+                            height: 34px;
+                            border-radius: 9px;
+                            background: del-ta.has-hover ? Theme.rec-soft : Theme.surface;
+                            border-width: 1px;
+                            border-color: del-ta.has-hover ? Theme.rec : Theme.border;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: Icons.trash;
+                                        size: 14px;
+                                        sw: 1.6px;
+                                        stroke: del-ta.has-hover ? Theme.rec : Theme.muted;
+                                    }
+                                }
+                                Text {
+                                    text: "Elimina";
+                                    vertical-alignment: center;
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: del-ta.has-hover ? Theme.rec : Theme.text;
+                                    font-family: Theme.ui-font;
+                                }
+                            }
+                            del-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.delete-device-files(); }
+                            }
+                        }
+                        Rectangle {
+                            width: 110px;
+                            height: 34px;
+                            border-radius: 9px;
+                            background: keep-ta.has-hover ? Theme.accent.darker(0.1) : Theme.accent;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: Icons.check;
+                                        size: 14px;
+                                        sw: 2px;
+                                        stroke: white;
+                                    }
+                                }
+                                Text {
+                                    text: "Mantieni";
+                                    vertical-alignment: center;
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: white;
+                                    font-family: Theme.ui-font;
+                                }
+                            }
+                            keep-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.keep-device-files(); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        padding: 10px;
+                        spacing: 8px;
+                        // Copy button
+                        Rectangle {
+                            width: 84px;
+                            height: 32px;
+                            border-radius: 9px;
+                            background: Theme.surface;
+                            border-width: 1px;
+                            border-color: cta.has-hover ? Theme.accent : Theme.border;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: Icons.copy;
+                                        size: 15px;
+                                        stroke: cta.has-hover ? Theme.accent : Theme.text;
+                                    }
+                                }
+                                Text {
+                                    text: "Copia";
+                                    vertical-alignment: center;
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: cta.has-hover ? Theme.accent : Theme.text;
+                                    font-family: Theme.ui-font;
+                                }
+                            }
+                            cta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.copy-text(); }
+                            }
+                        }
+                        // Confirm button (accent)
+                        Rectangle {
+                            width: 110px;
+                            height: 32px;
+                            border-radius: 9px;
+                            background: cfm-ta.has-hover ? Theme.accent.darker(0.1) : Theme.accent;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: Icons.check;
+                                        size: 15px;
+                                        sw: 2px;
+                                        stroke: white;
+                                    }
+                                }
+                                Text {
+                                    text: "Conferma";
+                                    vertical-alignment: center;
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: white;
+                                    font-family: Theme.ui-font;
+                                }
+                            }
+                            cfm-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.confirm-result(); }
+                            }
+                        }
+                    }
+                }
+
+                // downloading model / BLE
+                if root.downloading: VerticalLayout {
+                    alignment: center;
+                    spacing: 9px;
+                    Text {
+                        text: root.download-label;
+                        horizontal-alignment: center;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        font-family: Theme.ui-font;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.timer-text;
+                        horizontal-alignment: center;
+                        font-size: 12px;
+                        font-weight: 500;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                    }
+                }
+
+                // transcribing
+                if root.transcribing: VerticalLayout {
+                    alignment: center;
+                    spacing: 9px;
+                    if root.source-name != "": Text {
+                        text: root.source-name;
+                        horizontal-alignment: center;
+                        font-size: 12px;
+                        font-weight: 500;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: "Trascrizione in corso…";
+                        horizontal-alignment: center;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        font-family: Theme.ui-font;
+                    }
+                }
+
+                // diarizing
+                if root.diarizing: VerticalLayout {
+                    alignment: center;
+                    spacing: 9px;
+                    if root.source-name != "": Text {
+                        text: root.source-name;
+                        horizontal-alignment: center;
+                        font-size: 12px;
+                        font-weight: 500;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: "Identificazione speaker…";
+                        horizontal-alignment: center;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        font-family: Theme.ui-font;
+                    }
+                }
+
+                // recording
+                if root.recording: VerticalLayout {
+                    alignment: center;
+                    spacing: 9px;
+                    Text {
+                        text: "In ascolto…";
+                        horizontal-alignment: center;
+                        font-size: 13.5px;
+                        font-weight: 500;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                    }
+                }
+
+                // idle
+                if root.state == AppState.idle: VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon { commands: Icons.mic; size: 26px; stroke: Theme.border; }
+                    }
+                    Text {
+                        text: "La trascrizione apparirà qui.";
+                        horizontal-alignment: center;
+                        font-size: 13.5px;
+                        font-weight: 500;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                    }
+                    Text {
+                        text: "Premi il pulsante per iniziare a registrare.";
+                        horizontal-alignment: center;
+                        font-size: 12px;
+                        color: Theme.faint;
+                        font-family: Theme.ui-font;
+                    }
+                }
+            }
+
+            // footer — use a Rectangle so we can absolutely position the record button
+            Rectangle {
+                height: 80px;
+
+                // Record button — absolutely centered
+                RecordButton {
+                    state: root.state;
+                    progress: root.transcribe-progress;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    clicked => { root.toggle-record(); }
+                    cancel => { root.cancel-transcribe(); }
+                }
+
+                // left: timer + status
+                HorizontalLayout {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 9px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 9px;
+                            height: 9px;
+                            border-radius: 5px;
+                            background: root.recording ? Theme.rec
+                                : root.downloading ? Theme.accent
+                                : root.transcribing ? Theme.accent
+                                : root.diarizing ? Theme.accent
+                                : root.has-result ? Theme.done
+                                : Theme.faint;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: root.timer-text;
+                            font-size: 18px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            font-family: Theme.mono-font;
+                        }
+                        Text {
+                            text: root.recording ? "REGISTRAZIONE"
+                                : root.downloading ? "DOWNLOAD"
+                                : root.transcribing ? "ELABORAZIONE"
+                                : root.diarizing ? "DIARIZZAZIONE"
+                                : root.has-result ? "COMPLETATO"
+                                : "PRONTO";
+                            font-size: 10.5px;
+                            font-weight: 600;
+                            letter-spacing: 0.6px;
+                            color: Theme.muted;
+                            font-family: Theme.ui-font;
+                        }
+                    }
+                }
+
+                // right: recorder (BLE) + open-file buttons
+                HorizontalLayout {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    alignment: end;
+                    spacing: 8px;
+                    // BLE wireless recorder button
+                    if root.recorder-available: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 44px;
+                            height: 44px;
+                            border-radius: 10px;
+                            background: Theme.surface;
+                            border-width: 1px;
+                            border-color: (!root.busy && bta.has-hover) ? Theme.accent : Theme.border;
+                            opacity: root.busy ? 0.35 : 1.0;
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: Icons.bluetooth;
+                                        size: 20px;
+                                        sw: 1.6px;
+                                        stroke: (!root.busy && bta.has-hover) ? Theme.accent : Theme.muted;
+                                    }
+                                }
+                            }
+                            bta := TouchArea {
+                                mouse-cursor: root.busy ? default : pointer;
+                                clicked => { if (!root.busy) { root.open-recorder(); } }
+                            }
+                        }
+                    }
+                    // open-file button
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 44px;
+                            height: 44px;
+                            border-radius: 10px;
+                            background: Theme.surface;
+                            border-width: 1px;
+                            border-color: (!root.busy && ofa.has-hover) ? Theme.accent : Theme.border;
+                            opacity: root.busy ? 0.35 : 1.0;
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        commands: "M 3 7 L 3 18 A 2 2 0 0 0 5 20 L 19 20 A 2 2 0 0 0 21 18 L 21 9 A 2 2 0 0 0 19 7 L 12 7 L 10 4 L 5 4 A 2 2 0 0 0 3 6 Z";
+                                        size: 20px;
+                                        sw: 1.6px;
+                                        stroke: (!root.busy && ofa.has-hover) ? Theme.accent : Theme.muted;
+                                    }
+                                }
+                            }
+                            ofa := TouchArea {
+                                mouse-cursor: root.busy ? default : pointer;
+                                clicked => { if (!root.busy) { root.open-file(); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- setup modal overlay ----
+    if root.setup-open: SetupModal {
+        models: root.models;
+        diarize-enabled: root.diarize-enabled;
+        diarize-installed: root.diarize-models-installed;
+        diarize-status: root.diarize-status;
+        close => { root.setup-open = false; }
+        choose(id) => { root.choose-model(id); }
+        download(id) => { root.download-model(id); }
+        toggle-diarize(v) => { root.toggle-diarize(v); }
+        download-diarize => { root.download-diarize-models(); }
+    }
+}

@@ -1,0 +1,360 @@
+// setup.slint — Whisper model picker modal (matches state 05 / 06 of the mockup).
+import { Theme, Icons, ModelItem } from "theme.slint";
+import { Icon, Meter, Btn } from "widgets.slint";
+
+component ModelRow inherits Rectangle {
+    in property <ModelItem> m;
+    callback choose();
+    callback download();
+
+    border-radius: 11px;
+    background: m.selected ? Theme.accent-soft : Theme.surface;
+    border-width: 1px;
+    border-color: m.selected ? Theme.accent : Theme.border;
+
+    // Row-level touch area — MUST be before HorizontalLayout so buttons overlay it
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (m.installed && !m.selected) {
+                root.choose();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 11px;
+
+        // radio
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: 1px;
+            border-radius: 9px;
+            background: m.selected ? Theme.accent : transparent;
+            border-width: m.selected ? 0px : 1.6px;
+            border-color: Theme.border;
+            if m.selected: Icon {
+                commands: Icons.check;
+                size: 12px;
+                sw: 2px;
+                stroke: white;
+            }
+        }
+
+        // main
+        VerticalLayout {
+            spacing: 3px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Text {
+                    text: m.name;
+                    font-size: 13.5px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    font-family: Theme.ui-font;
+                }
+                Text {
+                    text: m.size;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    font-family: Theme.mono-font;
+                }
+                if m.installed: Rectangle {
+                    background: Theme.done.transparentize(0.85);
+                    border-radius: 10px;
+                    HorizontalLayout {
+                        padding-left: 7px;
+                        padding-right: 7px;
+                        Text {
+                            text: "Installato";
+                            vertical-alignment: center;
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: Theme.done;
+                            font-family: Theme.ui-font;
+                        }
+                    }
+                }
+            }
+
+            if !m.downloading: Text {
+                text: m.note;
+                font-size: 11.5px;
+                color: Theme.muted;
+                wrap: word-wrap;
+                font-family: Theme.ui-font;
+            }
+            if !m.downloading: HorizontalLayout {
+                spacing: 7px;
+                alignment: start;
+                padding-top: 5px;
+                Text {
+                    text: "VELOCITÀ";
+                    vertical-alignment: center;
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    color: Theme.faint;
+                    font-family: Theme.ui-font;
+                }
+                Meter { value: m.speed; }
+                Text {
+                    text: "QUALITÀ";
+                    vertical-alignment: center;
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    color: Theme.faint;
+                    font-family: Theme.ui-font;
+                }
+                Meter { value: m.quality; }
+            }
+
+            // download progress
+            if m.downloading: Rectangle {
+                height: 6px;
+                border-radius: 3px;
+                background: Theme.border;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * m.progress;
+                    height: parent.height;
+                    border-radius: 3px;
+                    background: Theme.accent;
+                }
+            }
+            if m.downloading: HorizontalLayout {
+                padding-top: 6px;
+                Text {
+                    text: m.progress-label;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    font-family: Theme.mono-font;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: "\{Math.round(m.progress * 100)}%";
+                    font-size: 11px;
+                    color: Theme.muted;
+                    font-family: Theme.mono-font;
+                }
+            }
+        }
+
+        // cta
+        VerticalLayout {
+            alignment: center;
+            if m.selected: Text {
+                text: "In uso";
+                font-size: 11.5px;
+                font-weight: 600;
+                color: Theme.accent;
+                font-family: Theme.ui-font;
+            }
+            if m.installed && !m.selected: Text {
+                text: "Installato";
+                font-size: 11.5px;
+                font-weight: 500;
+                color: Theme.muted;
+                font-family: Theme.ui-font;
+            }
+            if !m.installed && !m.downloading: Btn {
+                label: "Scarica";
+                icon: Icons.download;
+                clicked => { root.download(); }
+            }
+            if m.downloading: Btn {
+                label: "Annulla";
+                clicked => { root.download(); }
+            }
+        }
+    }
+
+}
+
+export component SetupModal inherits Rectangle {
+    in property <[ModelItem]> models;
+    in-out property <bool> diarize-enabled: false;
+    in property <bool> diarize-installed: false;
+    in property <string> diarize-status: "";
+    callback close();
+    callback choose(string);
+    callback download(string);
+    callback toggle-diarize(bool);
+    callback download-diarize();
+
+    width: 100%;
+    height: 100%;
+
+    // scrim
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+        TouchArea { clicked => { root.close(); } }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        padding: 14px;
+        HorizontalLayout {
+        alignment: center;
+        Rectangle {
+        width: 420px;
+        background: Theme.bg;
+        border-radius: 14px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #00000066;
+        // swallow clicks so they don't close via the scrim
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text {
+                        text: "Modello Whisper";
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        font-family: Theme.ui-font;
+                    }
+                    Text {
+                        text: "Scegli il modello per il riconoscimento vocale.";
+                        font-size: 12px;
+                        color: Theme.muted;
+                        font-family: Theme.ui-font;
+                    }
+                }
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 7px;
+                    background: xta.has-hover ? Theme.surface2 : transparent;
+                    Icon { commands: Icons.close; size: 16px; sw: 1.7px; stroke: Theme.muted; }
+                    xta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.close(); }
+                    }
+                }
+            }
+
+            for m in root.models: ModelRow {
+                m: m;
+                choose => { root.choose(m.id); }
+                download => { root.download(m.id); }
+            }
+
+            // ---- Speaker diarization section ----
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+            }
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 1px;
+                        Text {
+                            text: "Riconoscimento speaker";
+                            font-size: 13.5px;
+                            font-weight: 600;
+                            color: Theme.text;
+                            font-family: Theme.ui-font;
+                        }
+                        Text {
+                            text: "Identifica chi parla nel testo trascritto.";
+                            font-size: 11px;
+                            color: Theme.muted;
+                            font-family: Theme.ui-font;
+                        }
+                    }
+                    // Toggle switch
+                    Rectangle {
+                        width: 44px;
+                        height: 24px;
+                        border-radius: 12px;
+                        background: root.diarize-enabled ? Theme.accent : Theme.border;
+                        Rectangle {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 9px;
+                            background: white;
+                            x: root.diarize-enabled ? parent.width - self.width - 3px : 3px;
+                            y: 3px;
+                        }
+                        dta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if (!root.diarize-enabled && !root.diarize-installed) {
+                                    // Need to download models first
+                                    root.download-diarize();
+                                } else {
+                                    root.toggle-diarize(!root.diarize-enabled);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !root.diarize-installed: HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Modelli non installati (~45 MB)";
+                        font-size: 10px;
+                        color: Theme.faint;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        font-family: Theme.ui-font;
+                    }
+                    if root.diarize-status != "": Text {
+                        text: root.diarize-status;
+                        font-size: 10px;
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                        font-family: Theme.mono-font;
+                    }
+                }
+                if root.diarize-installed: Text {
+                    text: "Modelli installati";
+                    font-size: 10px;
+                    color: Theme.done;
+                    font-family: Theme.ui-font;
+                }
+            }
+
+            HorizontalLayout {
+                padding-top: 4px;
+                spacing: 10px;
+                Text {
+                    text: "Esecuzione locale · nessun dato lascia il dispositivo";
+                    vertical-alignment: center;
+                    font-size: 10.5px;
+                    color: Theme.faint;
+                    horizontal-stretch: 1;
+                    font-family: Theme.ui-font;
+                }
+                Btn {
+                    label: "Fatto";
+                    accent: true;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+        }
+        }
+    }
+}
