@@ -22,9 +22,16 @@ The call blocks until the user closes the window. When they press "Confirm", the
 
 The window handles everything: file import (WAV, MP3, OGG, FLAC via native file picker), microphone recording with device selection, model download and management, language selection, and result display with clipboard copy.
 
-## Two crates, one pipeline
+## Three crates, one pipeline
 
-The project is split into two crates with distinct responsibilities:
+The project is a Cargo workspace with three crates:
+
+```
+Whisper-RS/
+├── core/          → scriba-core   (headless engine, no UI)
+├── scriba-rs/     → scriba-rs     (embeddable Slint widget)
+└── whisper-cli/   → whisper-cli   (CLI transcription tool)
+```
 
 ### scriba-core — the headless engine
 
@@ -50,7 +57,29 @@ Each stage is independently usable. You can decode without transcribing, or tran
 - Model registry with automatic download from Hugging Face
 - JSON config persistence
 
-The separation means the CLI tool (`whisper-cli`, included in scriba-core's workspace) doesn't link against Slint, and headless consumers of scriba-core pay no UI tax.
+The separation means the CLI tool doesn't link against Slint, and headless consumers of scriba-core pay no UI tax.
+
+### whisper-cli — the command-line tool
+
+`whisper-cli` is a ready-to-use CLI for file transcription and live microphone input. It depends only on scriba-core — no UI overhead.
+
+```sh
+# Transcribe a file with auto-detected language
+whisper-cli --model ggml-large-v3-turbo-q5_0.bin file recording.wav
+
+# Live microphone transcription
+whisper-cli --model ggml-small-q5_1.bin listen
+
+# With speaker diarization (requires --features diarize)
+whisper-cli --model ggml-medium-q5_0.bin --diarize file meeting.wav
+```
+
+When diarization is enabled, the output includes speaker labels and a merged transcript:
+
+```
+[Speaker 1]  Buongiorno Marco, come stai oggi?
+[Speaker 2]  Ciao Isabella, tutto bene e grazie. E tu come stai?
+```
 
 ## Whisper models
 
@@ -158,7 +187,31 @@ Features are additive — the base crate has no optional dependencies enabled. G
 
 ## BLE recorder support
 
-The optional `recorder` feature integrates [mic-rs](https://github.com/dariofinardi/mic-rs), a crate for communicating with Bluetooth Low Energy audio recorders (currently targeting Soundcore-compatible devices). When enabled, Scriba can detect a paired BLE recorder, trigger recording, download the captured audio over Bluetooth, and transcribe it — all from the UI. This is a niche feature for specific hardware, hence the feature flag.
+The optional `recorder` feature integrates [mic-rs](https://github.com/dariofinardi/mic-rs), a crate for communicating with Bluetooth Low Energy audio recorders. The current implementation targets Anker Soundcore devices — small, portable BLE recorders that capture audio locally and transfer it over Bluetooth when connected.
+
+When enabled, Scriba can detect a paired BLE recorder, trigger recording, download the captured audio over Bluetooth, and transcribe it — all from the UI. The workflow is: record on the go with the Anker in your pocket, then connect to the PC and Scriba pulls the audio and transcribes it automatically. This is a niche feature for specific hardware, hence the feature flag.
+
+## Lessons from the trenches
+
+Building a native Whisper integration in Rust surfaces issues that higher-level wrappers hide. Two examples:
+
+### The auto-detect trap
+
+whisper.cpp exposes a `detect_language` flag in its inference parameters. The whisper-rs Rust bindings faithfully wrap it as `set_detect_language(true)`. The documentation says it's equivalent to setting the language to `None` (auto). In practice, with recent whisper.cpp versions, enabling this flag runs only the language detection forward pass — it identifies the language correctly but returns zero transcription segments.
+
+The fix is to use `set_language(None)` instead, which triggers auto-detection *and* runs the full inference. A one-line change, but one that turns a working feature into silent failure — the API returns `Ok(vec![])`, no error, no warning.
+
+### Building on Windows ARM64
+
+The primary development machine is a Qualcomm Snapdragon X Elite. This is not a well-trodden path for native C++ compilation. whisper.cpp's CMakeLists.txt explicitly rejects MSVC for ARM targets, requiring clang-cl and the Ninja build generator instead. The Rust `cmake` crate auto-detects "Visual Studio 18 2026" as the generator, which doesn't exist — Ninja must be forced via environment variable.
+
+ONNX Runtime (used by sherpa-rs for diarization) introduces another constraint: it crashes in debug mode on ARM64, likely due to incompatible debug assertions between clang-cl-built code and the MSVC debug runtime. All builds with diarization must use `--release`.
+
+sherpa-onnx's CMake scripts also assume Visual Studio's `CMAKE_VS_PLATFORM_NAME` variable to select the correct ONNX Runtime architecture. Under Ninja, this variable is unset, causing it to fall back to x64 binaries on an ARM64 host. The workaround is a custom CMake toolchain file that sets `CMAKE_VS_PLATFORM_NAME=ARM64` explicitly.
+
+Windows 11 removed `wmic.exe`, which sherpa-onnx's build scripts call to detect the OS version. The build crashes with an empty output. A minimal C shim that prints a static version string resolves it.
+
+None of these are bugs in the individual projects — they're edge cases at the intersection of a new platform, multiple build systems, and native code compilation through Rust's `cc`/`cmake` crates. Documenting them here because finding each one cost hours.
 
 ## What Scriba doesn't do
 
@@ -173,29 +226,44 @@ Some explicit non-goals and current limitations:
 
 ## Building
 
-Standard build:
+### Individual crates
 
 ```sh
-cargo build --release
+# Headless engine only
+cargo build --release -p scriba-core
+
+# CLI tool
+cargo build --release -p whisper-cli
+
+# CLI with diarization
+cargo build --release -p whisper-cli --features diarize
 ```
 
-With all optional features:
+### Full UI with all features
 
 ```sh
-cargo build --release --features "recorder,diarize"
+cargo build --release -p scriba-rs --features "recorder,diarize"
 ```
+
+The `recorder` feature links mic-rs for BLE support. The `diarize` feature links sherpa-rs + ONNX Runtime for speaker identification. Both are optional — the base UI works without them.
 
 ### Windows ARM64
 
-Building on Qualcomm Snapdragon requires Ninja and clang-cl, plus a cmake toolchain file for ARM64 cross-compilation:
+Building on Qualcomm Snapdragon requires Ninja, clang-cl, and a custom toolchain file:
 
 ```powershell
+$env:PATH = "cmake;" + $env:PATH
 $env:CMAKE_TOOLCHAIN_FILE = "cmake/arm64-toolchain.cmake"
 $env:CMAKE_GENERATOR = "Ninja"
 $env:CMAKE_C_COMPILER = "clang-cl"
 $env:CMAKE_CXX_COMPILER = "clang-cl"
 $env:CMAKE_ASM_COMPILER = "clang-cl"
+$env:GGML_NATIVE = "OFF"
+
+cargo build --release -p scriba-rs --features "recorder,diarize"
 ```
+
+The `cmake/` directory in the repository contains the ARM64 toolchain file and a wmic.exe shim for Windows 11 compatibility. `GGML_NATIVE=OFF` disables CPU-specific optimizations that cause cross-compile test failures on ARM64.
 
 ## Key dependencies
 
