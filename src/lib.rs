@@ -1,4 +1,5 @@
 mod gui;
+pub mod i18n;
 mod recorder;
 mod models;
 mod whisper;
@@ -26,6 +27,8 @@ pub struct ScribaConfig {
     pub data_dir: Option<PathBuf>,
     /// Keep window always on top. Default: true.
     pub always_on_top: bool,
+    /// UI language code (e.g. "en", "it", "fr", "de", "es", "pt"). None = detect from system. Default: None.
+    pub ui_language: Option<String>,
 }
 
 impl Default for ScribaConfig {
@@ -39,6 +42,7 @@ impl Default for ScribaConfig {
             app_name: "Scriba".to_string(),
             data_dir: None,
             always_on_top: true,
+            ui_language: None,
         }
     }
 }

@@ -1,0 +1,55 @@
+// i18n.slint — translatable strings global. All properties are set from Rust at startup.
+
+export global Tr {
+    // ---- title bar ----
+    in property <string> subtitle: "transcription";
+
+    // ---- controls ----
+    in property <string> mic-label: "INPUT MICROPHONE";
+    in property <string> lang-label: "LANGUAGE";
+
+    // ---- buttons ----
+    in property <string> btn-setup: "Setup";
+    in property <string> btn-copy: "Copy";
+    in property <string> btn-confirm: "Confirm";
+    in property <string> btn-delete: "Delete";
+    in property <string> btn-keep: "Keep";
+
+    // ---- transcript area states ----
+    in property <string> status-transcribing: "Transcribing…";
+    in property <string> status-diarizing: "Identifying speakers…";
+    in property <string> status-recording: "Listening…";
+    in property <string> idle-title: "Transcript will appear here.";
+    in property <string> idle-hint: "Press the button to start recording.";
+
+    // ---- footer status labels ----
+    in property <string> state-recording: "RECORDING";
+    in property <string> state-download: "DOWNLOAD";
+    in property <string> state-transcribing: "PROCESSING";
+    in property <string> state-diarizing: "DIARIZATION";
+    in property <string> state-done: "COMPLETED";
+    in property <string> state-ready: "READY";
+
+    // ---- setup modal ----
+    in property <string> setup-title: "Whisper Model";
+    in property <string> setup-subtitle: "Choose the model for speech recognition.";
+    in property <string> setup-installed: "Installed";
+    in property <string> setup-speed: "SPEED";
+    in property <string> setup-quality: "QUALITY";
+    in property <string> setup-in-use: "In use";
+    in property <string> setup-download: "Download";
+    in property <string> setup-cancel: "Cancel";
+    in property <string> setup-done: "Done";
+
+    // ---- diarization section ----
+    in property <string> diarize-title: "Speaker recognition";
+    in property <string> diarize-subtitle: "Identify who is speaking in the transcript.";
+    in property <string> diarize-not-installed: "Models not installed (~45 MB)";
+    in property <string> diarize-installed: "Models installed";
+
+    // ---- UI language ----
+    in property <string> setup-ui-lang: "INTERFACE LANGUAGE";
+
+    // ---- privacy ----
+    in property <string> privacy-note: "Local execution · no data leaves the device";
+}

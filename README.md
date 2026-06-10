@@ -22,6 +22,7 @@ The goal is to provide a simple, embeddable tool: a transcription widget that an
 - **Clipboard copy** — one click to copy the transcript
 - **Structured result** — `ScribaResult` with full text, timed segments, language, speaker labels, processing times — JSON-serializable
 - **BLE recorder support** — automatic download and transcription from Bluetooth devices (optional `recorder` feature, requires [mic-rs](https://github.com/dariofinardi/mic-rs))
+- **Multilingual interface** — UI and runtime messages in 6 languages (English, Italian, French, German, Spanish, Portuguese), auto-detected from system locale or selectable at runtime from Setup
 
 ### User interface
 
@@ -89,6 +90,7 @@ fn main() {
 | `diarize` | `bool` | `false` | Enable speaker identification |
 | `app_name` | `String` | `"Scriba"` | Name shown in the title bar |
 | `data_dir` | `Option<PathBuf>` | `None` | Custom directory for models and config |
+| `ui_language` | `Option<String>` | `None` | Force UI locale (`"en"`, `"it"`, `"fr"`, `"de"`, `"es"`, `"pt"`). `None` = auto-detect from OS |
 | `always_on_top` | `bool` | `true` | Keep window always on top |
 
 ### `ScribaResult`
@@ -130,6 +132,28 @@ Both block until the window is closed. Must be called from the main thread (macO
 | `metal` | Apple GPU acceleration (Metal) |
 | `vulkan` | Cross-platform GPU acceleration (Vulkan) |
 
+## Internationalization
+
+The interface detects the system locale at startup and displays all strings in the matching language. Supported locales:
+
+| Code | Language   |
+|------|------------|
+| `en` | English    |
+| `it` | Italiano   |
+| `fr` | Français   |
+| `de` | Deutsch    |
+| `es` | Español    |
+| `pt` | Português  |
+
+The language can be changed at runtime from the Setup panel without restarting. The choice is persisted in the JSON config file and restored on next launch. Programmatic override:
+
+```rust
+ScribaConfig {
+    ui_language: Some("fr".into()),
+    ..Default::default()
+}
+```
+
 ## Building
 
 ### Standard build
@@ -163,15 +187,17 @@ scriba-rs
 ├── src/
 │   ├── lib.rs        # Public API (ScribaConfig, ScribaResult, run)
 │   ├── gui.rs        # Slint window orchestration, callbacks, system tray
+│   ├── i18n.rs       # Translations for 6 locales (en, it, fr, de, es, pt)
 │   ├── recorder.rs   # Microphone capture (cpal)
 │   ├── models.rs     # Model registry, download, path management
 │   ├── whisper.rs    # Whisper transcription with progress
 │   └── config.rs     # JSON config persistence
 ├── slint-ui/
 │   ├── app.slint     # Main window layout
+│   ├── i18n.slint    # Translatable string properties (global Tr)
 │   ├── theme.slint   # Colors, icons, enums
 │   ├── widgets.slint # Reusable UI components
-│   └── setup.slint   # Model setup panel
+│   └── setup.slint   # Model setup panel with language selector
 └── examples/
     └── basic.rs      # Minimal integration example
 ```
@@ -186,6 +212,7 @@ scriba-rs
 | [cpal](https://crates.io/crates/cpal) | Cross-platform audio capture |
 | [tray-icon](https://crates.io/crates/tray-icon) | System tray icon |
 | [rfd](https://crates.io/crates/rfd) | Native dialogs (file picker, confirmations) |
+| [sys-locale](https://crates.io/crates/sys-locale) | System locale detection for i18n |
 | [sherpa-rs](https://crates.io/crates/sherpa-rs) | Speaker diarization (optional) |
 | [mic-rs](https://github.com/dariofinardi/mic-rs) | BLE Soundcore recorder (optional) |
 

@@ -8,6 +8,7 @@ use slint::{Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::{ScribaConfig, ScribaResult, ResultSegment};
 use crate::config;
+use crate::i18n::{self, Locale, Translations};
 use crate::models;
 use crate::recorder::{self, Recorder};
 use crate::whisper;
@@ -22,12 +23,19 @@ fn eta_string(start: Instant, progress: f32) -> String {
     format!("{:02}:{:02}", remaining / 60, remaining % 60)
 }
 
-fn build_model_items(selected: &str, data_dir: Option<&std::path::Path>) -> Vec<ModelItem> {
-    models::registry().iter().map(|m| ModelItem {
+fn build_model_items(selected: &str, data_dir: Option<&std::path::Path>, t: &'static Translations) -> Vec<ModelItem> {
+    models::registry().iter().map(|m| {
+        let note = match m.id {
+            "lite" => t.model_lite_note,
+            "medium" => t.model_medium_note,
+            "turbo" => t.model_turbo_note,
+            _ => m.note,
+        };
+        ModelItem {
         id: m.id.into(),
         name: m.name.into(),
         size: m.size.into(),
-        note: m.note.into(),
+        note: note.into(),
         speed: m.speed,
         quality: m.quality,
         installed: models::is_installed(m.id, data_dir),
@@ -35,7 +43,45 @@ fn build_model_items(selected: &str, data_dir: Option<&std::path::Path>) -> Vec<
         downloading: false,
         progress: 0.0,
         progress_label: SharedString::new(),
-    }).collect()
+    }}).collect()
+}
+
+fn apply_translations(ui: &AppWindow, t: &Translations) {
+    let tr = ui.global::<Tr>();
+    tr.set_subtitle(t.subtitle.into());
+    tr.set_mic_label(t.mic_label.into());
+    tr.set_lang_label(t.lang_label.into());
+    tr.set_btn_setup(t.btn_setup.into());
+    tr.set_btn_copy(t.btn_copy.into());
+    tr.set_btn_confirm(t.btn_confirm.into());
+    tr.set_btn_delete(t.btn_delete.into());
+    tr.set_btn_keep(t.btn_keep.into());
+    tr.set_status_transcribing(t.status_transcribing.into());
+    tr.set_status_diarizing(t.status_diarizing.into());
+    tr.set_status_recording(t.status_recording.into());
+    tr.set_idle_title(t.idle_title.into());
+    tr.set_idle_hint(t.idle_hint.into());
+    tr.set_state_recording(t.state_recording.into());
+    tr.set_state_download(t.state_download.into());
+    tr.set_state_transcribing(t.state_transcribing.into());
+    tr.set_state_diarizing(t.state_diarizing.into());
+    tr.set_state_done(t.state_done.into());
+    tr.set_state_ready(t.state_ready.into());
+    tr.set_setup_title(t.setup_title.into());
+    tr.set_setup_subtitle(t.setup_subtitle.into());
+    tr.set_setup_installed(t.setup_installed.into());
+    tr.set_setup_speed(t.setup_speed.into());
+    tr.set_setup_quality(t.setup_quality.into());
+    tr.set_setup_in_use(t.setup_in_use.into());
+    tr.set_setup_download(t.setup_download.into());
+    tr.set_setup_cancel(t.setup_cancel.into());
+    tr.set_setup_done(t.setup_done.into());
+    tr.set_diarize_title(t.diarize_title.into());
+    tr.set_diarize_subtitle(t.diarize_subtitle.into());
+    tr.set_diarize_not_installed(t.diarize_not_installed.into());
+    tr.set_diarize_installed(t.diarize_installed.into());
+    tr.set_setup_ui_lang(t.setup_ui_lang.into());
+    tr.set_privacy_note(t.privacy_note.into());
 }
 
 fn current_model_id(ui: &AppWindow) -> String {
@@ -74,6 +120,16 @@ where
     // ---- app name ----
     ui.set_app_name(cfg.app_name.clone().into());
 
+    // ---- i18n ----
+    let saved_cfg = config::load_config(dd);
+    let locale = saved_cfg.ui_language.as_deref()
+        .or(cfg.ui_language.as_deref())
+        .map(Locale::from_code)
+        .unwrap_or_else(Locale::detect_system);
+    let t = i18n::translations(locale);
+    apply_translations(&ui, t);
+    ui.set_ui_lang(locale.code().into());
+
     // ---- microphones ----
     let mics = recorder::input_device_names();
     let default_mic = recorder::default_input_name()
@@ -85,39 +141,39 @@ where
     ui.set_mic(default_mic.as_str().into());
 
     // ---- languages ----
-    let langs: Vec<(&str, &str)> = vec![
-        ("Rilevamento automatico", "auto"),
-        ("Italiano", "it"), ("English", "en"), ("Espa\u{00f1}ol", "es"),
-        ("Fran\u{00e7}ais", "fr"), ("Deutsch", "de"), ("Portugu\u{00ea}s", "pt"),
+    let auto_label = t.auto_detect.to_string();
+    let langs: Vec<(String, &str)> = vec![
+        (auto_label.clone(), "auto"),
+        ("Italiano".into(), "it"), ("English".into(), "en"), ("Espa\u{00f1}ol".into(), "es"),
+        ("Fran\u{00e7}ais".into(), "fr"), ("Deutsch".into(), "de"), ("Portugu\u{00ea}s".into(), "pt"),
     ];
     let lang_codes: HashMap<String, String> =
-        langs.iter().map(|(n, c)| (n.to_string(), c.to_string())).collect();
+        langs.iter().map(|(n, c)| (n.clone(), c.to_string())).collect();
     let lang_model: Rc<VecModel<SharedString>> =
-        Rc::new(VecModel::from(langs.iter().map(|(n, _)| (*n).into()).collect::<Vec<SharedString>>()));
-    ui.set_languages(ModelRc::from(lang_model));
+        Rc::new(VecModel::from(langs.iter().map(|(n, _)| SharedString::from(n.as_str())).collect::<Vec<SharedString>>()));
+    ui.set_languages(ModelRc::from(lang_model.clone()));
 
     let default_lang_label = langs.iter()
         .find(|(_, c)| *c == cfg.default_language)
-        .map(|(n, _)| *n)
-        .unwrap_or("Rilevamento automatico");
+        .map(|(n, _)| n.as_str())
+        .unwrap_or(&auto_label);
     ui.set_language(default_lang_label.into());
 
     // ---- models + saved config ----
-    let (saved_model, saved_diarize) = config::load_config(dd);
     let initial_model = if models::is_installed(&cfg.model, dd) {
         cfg.model.clone()
-    } else if models::is_installed(&saved_model, dd) {
-        saved_model.clone()
+    } else if models::is_installed(&saved_cfg.model, dd) {
+        saved_cfg.model.clone()
     } else {
         models::registry().iter()
             .find(|m| models::is_installed(m.id, dd))
             .map(|m| m.id.to_string())
             .unwrap_or_else(|| cfg.model.clone())
     };
-    let model_items = Rc::new(VecModel::from(build_model_items(&initial_model, dd)));
+    let model_items = Rc::new(VecModel::from(build_model_items(&initial_model, dd, t)));
     ui.set_models(ModelRc::from(model_items));
-    ui.set_diarize_enabled(saved_diarize || cfg.diarize);
-    ui.set_diarize_active(saved_diarize || cfg.diarize);
+    ui.set_diarize_enabled(saved_cfg.diarize || cfg.diarize);
+    ui.set_diarize_active(saved_cfg.diarize || cfg.diarize);
 
     // ---- shared state ----
     let rec: Rc<RefCell<Option<Recorder>>> = Rc::new(RefCell::new(None));
@@ -125,6 +181,9 @@ where
     let default_lang_code = lang_codes.get(default_lang_label)
         .cloned().unwrap_or_else(|| "auto".to_string());
     let current_lang = Rc::new(RefCell::new(default_lang_code));
+    let current_ui_lang: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(
+        saved_cfg.ui_language.or_else(|| cfg.ui_language.clone())
+    ));
     let rec_start = Rc::new(RefCell::new(Instant::now()));
 
     // Arc<Mutex<>> so it can cross into upgrade_in_event_loop (Send required)
@@ -192,7 +251,7 @@ where
                         let dm = (dur_secs as u64 % 3600) / 60;
                         let ds = dur_secs as u64 % 60;
                         ui.set_state(AppState::Transcribing);
-                        ui.set_source_name(format!("Registrazione microfono ({dh:02}:{dm:02}:{ds:02})").into());
+                        ui.set_source_name(format!("{} ({dh:02}:{dm:02}:{ds:02})", t.mic_recording).into());
                         let lang = cl.borrow().clone();
                         let mid = current_model_id(&ui);
                         let do_diarize = ui.get_diarize_active();
@@ -215,7 +274,7 @@ where
                             };
                             let result = run_transcription(
                                 &mid, &lang, &samples, dur_secs, do_diarize,
-                                dd2.as_deref(), pcb, weak3,
+                                dd2.as_deref(), pcb, weak3, t,
                             );
                             let _ = weak2.upgrade_in_event_loop(move |ui| {
                                 match result {
@@ -247,7 +306,7 @@ where
                             ui.set_state(AppState::Recording);
                         }
                         Err(e) => {
-                            ui.set_transcript(format!("\u{26a0}\u{fe0e} Microfono non disponibile: {e}").into());
+                            ui.set_transcript(format!("\u{26a0}\u{fe0e} {}: {e}", t.mic_unavailable).into());
                             ui.set_state(AppState::Result);
                         }
                     }
@@ -312,7 +371,7 @@ where
                         let pcm = scriba_core::audio::resample_to_16khz(&decoded.samples, decoded.sample_rate)?;
                         run_transcription(
                             &mid, &lang, &pcm, dur_secs, do_diarize,
-                            dd2.as_deref(), pcb, weak3,
+                            dd2.as_deref(), pcb, weak3, t,
                         )
                     })();
                     let _ = weak2.upgrade_in_event_loop(move |ui| {
@@ -338,6 +397,7 @@ where
     {
         let weak = ui.as_weak();
         let dd = data_dir.clone();
+        let cul = current_ui_lang.clone();
         ui.on_choose_model(move |id| {
             if let Some(ui) = weak.upgrade() {
                 let m = ui.get_models();
@@ -347,7 +407,7 @@ where
                         m.set_row_data(i, it);
                     }
                 }
-                config::save_config(&id, ui.get_diarize_enabled(), dd.as_deref());
+                config::save_config(&id, ui.get_diarize_enabled(), cul.borrow().as_deref(), dd.as_deref());
             }
         });
     }
@@ -364,7 +424,7 @@ where
                     if it.id == id {
                         it.downloading = true;
                         it.progress = 0.0;
-                        it.progress_label = "Avvio\u{2026}".into();
+                        it.progress_label = t.download_starting.into();
                         m.set_row_data(i, it);
                     }
                 }
@@ -420,7 +480,7 @@ where
                         }
                     }
                     if let Some(e) = &err_txt {
-                        ui.set_transcript(format!("\u{26a0}\u{fe0e} Download fallito: {e}").into());
+                        ui.set_transcript(format!("\u{26a0}\u{fe0e} {}: {e}", t.download_failed).into());
                     }
                 });
             });
@@ -503,8 +563,8 @@ where
             if let Some(ui) = weak.upgrade() {
                 ui.set_on_top(false);
                 let confirmed = rfd::MessageDialog::new()
-                    .set_title("Chiudi Scriba")
-                    .set_description("Vuoi uscire dall'applicazione?")
+                    .set_title(t.close_title)
+                    .set_description(t.close_message)
                     .set_buttons(rfd::MessageButtons::YesNo)
                     .show();
                 if confirmed == rfd::MessageDialogResult::Yes {
@@ -520,7 +580,7 @@ where
     }
 
     // ---- system tray icon ----
-    let _tray_state = setup_tray_icon(&ui, &cfg);
+    let _tray_state = setup_tray_icon(&ui, &cfg, t);
 
     // ---- delete / keep device files ----
     {
@@ -536,7 +596,7 @@ where
             {
                 let weak2 = weak.clone();
                 std::thread::spawn(move || {
-                    ble_delete_from_device(file_ids, weak2);
+                    ble_delete_from_device(file_ids, weak2, t);
                 });
             }
         });
@@ -569,7 +629,7 @@ where
             if st != AppState::Idle && st != AppState::Result { return; }
 
             ui.set_state(AppState::Downloading);
-            ui.set_download_label("Scansione BLE\u{2026}".into());
+            ui.set_download_label(t.ble_scanning.into());
             ui.set_timer_text("".into());
             ui.set_transcript("".into());
             ui.set_transcribe_progress(0.0);
@@ -586,13 +646,13 @@ where
                 let pr2 = _pr.clone();
                 let ids2 = _ids.clone();
                 std::thread::spawn(move || {
-                    ble_recorder_flow(weak2, dd2, lang, mid, do_diarize, pr2, ids2);
+                    ble_recorder_flow(weak2, dd2, lang, mid, do_diarize, pr2, ids2, t);
                 });
             }
             #[cfg(not(feature = "recorder"))]
             {
                 let _ = weak2.upgrade_in_event_loop(move |ui| {
-                    ui.set_transcript("\u{26a0}\u{fe0e} Compilare con --features recorder".into());
+                    ui.set_transcript(format!("\u{26a0}\u{fe0e} {}", t.ble_feature_missing).into());
                     ui.set_state(AppState::Result);
                 });
             }
@@ -609,12 +669,13 @@ where
     {
         let weak = ui.as_weak();
         let dd = data_dir.clone();
+        let cul = current_ui_lang.clone();
         ui.on_toggle_diarize(move |enabled| {
             if let Some(ui) = weak.upgrade() {
                 ui.set_diarize_enabled(enabled);
                 ui.set_diarize_active(enabled);
                 let mid = current_model_id(&ui);
-                config::save_config(&mid, enabled, dd.as_deref());
+                config::save_config(&mid, enabled, cul.borrow().as_deref(), dd.as_deref());
             }
         });
     }
@@ -628,7 +689,7 @@ where
                 let weak2 = _weak.clone();
                 let weak3 = _weak.clone();
                 let _ = _weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_diarize_status("Download...".into());
+                    ui.set_diarize_status(t.diarize_download.into());
                 });
                 std::thread::spawn(move || {
                     let w = weak3.clone();
@@ -648,7 +709,7 @@ where
                                 ui.set_diarize_status("".into());
                             }
                             Err(e) => {
-                                ui.set_diarize_status(format!("Errore: {e}").into());
+                                ui.set_diarize_status(format!("{}: {e}", t.runtime_error).into());
                             }
                         }
                     });
@@ -657,8 +718,47 @@ where
             #[cfg(not(feature = "diarize"))]
             {
                 let _ = _weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_diarize_status("Non disponibile su questa piattaforma".into());
+                    ui.set_diarize_status(t.diarize_unavailable.into());
                 });
+            }
+        });
+    }
+
+    // ---- change UI language ----
+    {
+        let weak = ui.as_weak();
+        let dd = data_dir.clone();
+        let cul = current_ui_lang.clone();
+        let lm = lang_model.clone();
+        let tray_show = _tray_state.as_ref().map(|ts| ts.show_item.clone());
+        let tray_about = _tray_state.as_ref().map(|ts| ts.about_item.clone());
+        ui.on_change_ui_lang(move |code| {
+            let locale = Locale::from_code(code.as_str());
+            let new_t = i18n::translations(locale);
+            *cul.borrow_mut() = Some(code.to_string());
+            if let Some(ui) = weak.upgrade() {
+                apply_translations(&ui, new_t);
+                ui.set_ui_lang(code.clone());
+                // update auto-detect label in language combo
+                lm.set_row_data(0, new_t.auto_detect.into());
+                // update model notes
+                let m = ui.get_models();
+                for i in 0..m.row_count() {
+                    if let Some(mut it) = m.row_data(i) {
+                        it.note = match it.id.as_str() {
+                            "lite" => new_t.model_lite_note,
+                            "medium" => new_t.model_medium_note,
+                            "turbo" => new_t.model_turbo_note,
+                            _ => return,
+                        }.into();
+                        m.set_row_data(i, it);
+                    }
+                }
+                // update tray menu items
+                if let Some(ref item) = tray_show { item.set_text(new_t.tray_show); }
+                if let Some(ref item) = tray_about { item.set_text(new_t.tray_about); }
+                let mid = current_model_id(&ui);
+                config::save_config(&mid, ui.get_diarize_enabled(), Some(code.as_str()), dd.as_deref());
             }
         });
     }
@@ -719,9 +819,10 @@ fn run_transcription(
     data_dir: Option<&std::path::Path>,
     pcb: Arc<dyn Fn(f32) + Send + Sync>,
     weak: slint::Weak<AppWindow>,
+    t: &'static Translations,
 ) -> anyhow::Result<PendingResult> {
     let mp = models::model_path(mid, data_dir)
-        .ok_or_else(|| anyhow::anyhow!("modello sconosciuto"))?;
+        .ok_or_else(|| anyhow::anyhow!("{}", t.unknown_model))?;
 
     if !mp.exists() {
         let w = weak.clone();
@@ -758,7 +859,7 @@ fn run_transcription(
 
     let mut diarization_time = 0.0;
     let (final_text, segments_with_speakers) = maybe_diarize(
-        do_diarize, &tr, samples, &weak, &mut diarization_time,
+        do_diarize, &tr, samples, &weak, &mut diarization_time, t,
     )?;
 
     Ok(PendingResult {
@@ -779,6 +880,7 @@ fn maybe_diarize(
     _samples: &[f32],
     _weak: &slint::Weak<AppWindow>,
     _diarization_time: &mut f64,
+    t: &'static Translations,
 ) -> anyhow::Result<(String, Vec<ResultSegment>)> {
     #[cfg(feature = "diarize")]
     if do_diarize && scriba_core::diarize::models_installed() {
@@ -806,15 +908,15 @@ fn maybe_diarize(
 
         let merged = scriba_core::diarize::merge_transcript_with_speakers(&tr.segments, &speaker_segs);
 
-        let segments: Vec<ResultSegment> = tr.segments.iter().map(|(s, e, t)| {
+        let segments: Vec<ResultSegment> = tr.segments.iter().map(|(s, e, txt)| {
             let mid_t = (s + e) / 2.0;
             let speaker = speaker_segs.iter()
                 .find(|ss| ss.start <= mid_t && mid_t <= ss.end)
-                .map(|ss| format!("Speaker {}", ss.speaker + 1));
+                .map(|ss| format!("{} {}", t.speaker_label, ss.speaker + 1));
             ResultSegment {
                 start: *s as f64,
                 end: *e as f64,
-                text: t.trim().to_string(),
+                text: txt.trim().to_string(),
                 speaker,
             }
         }).collect();
@@ -823,11 +925,11 @@ fn maybe_diarize(
     }
 
     let _ = do_diarize;
-    let segments: Vec<ResultSegment> = tr.segments.iter().map(|(s, e, t)| {
+    let segments: Vec<ResultSegment> = tr.segments.iter().map(|(s, e, txt)| {
         ResultSegment {
             start: *s as f64,
             end: *e as f64,
-            text: t.trim().to_string(),
+            text: txt.trim().to_string(),
             speaker: None,
         }
     }).collect();
@@ -845,12 +947,13 @@ fn ble_recorder_flow(
     do_diarize: bool,
     pending_result: Arc<Mutex<Option<PendingResult>>>,
     ble_file_ids: Arc<Mutex<Vec<u32>>>,
+    t: &'static Translations,
 ) {
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
             let _ = weak.upgrade_in_event_loop(move |ui| {
-                ui.set_transcript(format!("\u{26a0}\u{fe0e} Errore runtime: {e}").into());
+                ui.set_transcript(format!("\u{26a0}\u{fe0e} {}: {e}", t.runtime_error).into());
                 ui.set_state(AppState::Result);
             });
             return;
@@ -858,7 +961,7 @@ fn ble_recorder_flow(
     };
 
     let weak2 = weak.clone();
-    let scan_result = rt.block_on(ble_download_files(weak.clone()));
+    let scan_result = rt.block_on(ble_download_files(weak.clone(), t));
 
     match scan_result {
         Ok((file_ids, opus_paths)) if !opus_paths.is_empty() => {
@@ -919,7 +1022,7 @@ fn ble_recorder_flow(
                     });
 
                     let pr = run_transcription(
-                        &model_id, &lang, &pcm, dur, do_diarize, dd, pcb, weak.clone(),
+                        &model_id, &lang, &pcm, dur, do_diarize, dd, pcb, weak.clone(), t,
                     )?;
                     total_transcription_time += pr.transcription_time_secs;
                     total_diarization_time += pr.diarization_time_secs;
@@ -930,7 +1033,7 @@ fn ble_recorder_flow(
                 })();
 
                 if let Err(e) = res {
-                    log::warn!("errore trascrizione {}: {e}", path.display());
+                    log::warn!("transcription error {}: {e}", path.display());
                 }
             }
 
@@ -957,7 +1060,7 @@ fn ble_recorder_flow(
         }
         Ok(_) => {
             let _ = weak2.upgrade_in_event_loop(|ui| {
-                ui.set_transcript("Nessun file audio trovato sul dispositivo.".into());
+                ui.set_transcript(t.ble_no_files.into());
                 ui.set_state(AppState::Result);
             });
         }
@@ -973,14 +1076,15 @@ fn ble_recorder_flow(
 #[cfg(feature = "recorder")]
 async fn ble_download_files(
     weak: slint::Weak<AppWindow>,
+    t: &'static Translations,
 ) -> anyhow::Result<(Vec<u32>, Vec<std::path::PathBuf>)> {
     use std::time::Duration;
 
     let devices = mic_rs::Recorder::scan(None, Duration::from_secs(5)).await
-        .map_err(|e| anyhow::anyhow!("Scansione BLE: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{} {e}", t.ble_scanning))?;
 
     if devices.is_empty() {
-        anyhow::bail!("Nessun dispositivo Soundcore trovato.\nAssicurati che il registratore sia acceso e nel raggio BLE.");
+        anyhow::bail!("{}", t.ble_not_found);
     }
 
     let dev = devices.into_iter().next().unwrap();
@@ -989,32 +1093,32 @@ async fn ble_download_files(
         let w = weak.clone();
         let dl = dev_label.clone();
         let _ = w.upgrade_in_event_loop(move |ui| {
-            ui.set_download_label(format!("Connessione a {dl}\u{2026}").into());
+            ui.set_download_label(format!("{} {dl}\u{2026}", t.ble_connecting).into());
         });
     }
 
     let mut recorder = mic_rs::Recorder::connect(dev).await
-        .map_err(|e| anyhow::anyhow!("Connessione a {dev_label}: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{} {dev_label}: {e}", t.ble_connecting))?;
 
     {
         let w = weak.clone();
         let _ = w.upgrade_in_event_loop(|ui| {
-            ui.set_download_label("Handshake crittografico\u{2026}".into());
+            ui.set_download_label(t.ble_handshake.into());
         });
     }
 
     recorder.handshake().await
-        .map_err(|e| anyhow::anyhow!("Handshake con {dev_label}: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{} {dev_label}: {e}", t.ble_handshake))?;
 
     {
         let w = weak.clone();
         let _ = w.upgrade_in_event_loop(|ui| {
-            ui.set_download_label("Lettura lista file\u{2026}".into());
+            ui.set_download_label(t.ble_reading_files.into());
         });
     }
 
     let files = recorder.list_files().await
-        .map_err(|e| anyhow::anyhow!("Lista file: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{} {e}", t.ble_reading_files))?;
 
     if files.is_empty() {
         let _ = recorder.disconnect().await;
@@ -1075,7 +1179,7 @@ async fn ble_download_files(
 }
 
 #[cfg(feature = "recorder")]
-fn ble_delete_from_device(file_ids: Vec<u32>, weak: slint::Weak<AppWindow>) {
+fn ble_delete_from_device(file_ids: Vec<u32>, weak: slint::Weak<AppWindow>, t: &'static Translations) {
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -1085,14 +1189,14 @@ fn ble_delete_from_device(file_ids: Vec<u32>, weak: slint::Weak<AppWindow>) {
     };
     rt.block_on(async {
         let _ = weak.upgrade_in_event_loop(|ui| {
-            ui.set_source_name("Connessione per eliminazione\u{2026}".into());
+            ui.set_source_name(t.ble_connect_delete.into());
         });
         let devices = match mic_rs::Recorder::scan(None, std::time::Duration::from_secs(5)).await {
             Ok(d) if !d.is_empty() => d,
             Ok(_) => {
                 log::warn!("device not found for delete");
                 let _ = weak.upgrade_in_event_loop(|ui| {
-                    ui.set_source_name("Dispositivo non trovato".into());
+                    ui.set_source_name(t.ble_device_not_found.into());
                 });
                 return;
             }
@@ -1119,7 +1223,7 @@ fn ble_delete_from_device(file_ids: Vec<u32>, weak: slint::Weak<AppWindow>) {
         let _ = rec.disconnect().await;
         log::info!("deleted {} files from device", file_ids.len());
         let _ = weak.upgrade_in_event_loop(|ui| {
-            ui.set_source_name("File eliminati dal dispositivo".into());
+            ui.set_source_name(t.ble_files_deleted.into());
         });
     });
 }
@@ -1148,16 +1252,23 @@ fn create_tray_icon_image(r: u8, g: u8, b: u8) -> tray_icon::Icon {
     tray_icon::Icon::from_rgba(rgba, size, size).unwrap()
 }
 
-#[allow(clippy::type_complexity)]
+struct TrayState {
+    _tray: tray_icon::TrayIcon,
+    _timer: Timer,
+    show_item: tray_icon::menu::MenuItem,
+    about_item: tray_icon::menu::MenuItem,
+}
+
 fn setup_tray_icon(
     ui: &AppWindow,
     cfg: &crate::ScribaConfig,
-) -> Option<(tray_icon::TrayIcon, Timer)> {
+    t: &'static Translations,
+) -> Option<TrayState> {
     use tray_icon::menu::{Menu, MenuItem, MenuEvent, PredefinedMenuItem};
 
     let menu = Menu::new();
-    let show_item = MenuItem::new("Show Scriba", true, None);
-    let about_item = MenuItem::new("About\u{2026}", true, None);
+    let show_item = MenuItem::new(t.tray_show, true, None);
+    let about_item = MenuItem::new(t.tray_about, true, None);
     if menu.append(&show_item).is_err() { return None; }
     if menu.append(&PredefinedMenuItem::separator()).is_err() { return None; }
     if menu.append(&about_item).is_err() { return None; }
@@ -1196,7 +1307,7 @@ fn setup_tray_icon(
                     }
                 } else if event.id == about_id {
                     rfd::MessageDialog::new()
-                        .set_title("About Scriba")
+                        .set_title(t.about_title)
                         .set_description(
                             "Scriba v20260606\n\n\
                              \u{00a9} 2026 Dario Finardi\n\n\
@@ -1210,5 +1321,5 @@ fn setup_tray_icon(
         });
     }
 
-    Some((tray, tray_timer))
+    Some(TrayState { _tray: tray, _timer: tray_timer, show_item, about_item })
 }

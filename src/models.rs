@@ -15,21 +15,21 @@ pub fn registry() -> Vec<ModelDef> {
     vec![
         ModelDef {
             id: "lite", name: "Lite", size: "190 MB",
-            note: "Veloce \u{00b7} ottimo per appunti rapidi",
+            note: "Fast \u{00b7} great for quick notes",
             speed: 4, quality: 2,
             file: "ggml-small-q5_1.bin",
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
         },
         ModelDef {
             id: "medium", name: "Medium", size: "515 MB",
-            note: "Bilanciato tra velocit\u{00e0} e accuratezza",
+            note: "Balanced between speed and accuracy",
             speed: 3, quality: 3,
             file: "ggml-medium-q5_0.bin",
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
         },
         ModelDef {
             id: "turbo", name: "Large Turbo", size: "574 MB",
-            note: "Massima accuratezza, ottimizzato",
+            note: "Maximum accuracy, optimized",
             speed: 3, quality: 4,
             file: "ggml-large-v3-turbo-q5_0.bin",
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
